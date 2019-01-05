@@ -76,6 +76,8 @@ def get_all_votes(country, from_country=False, year_from=1957, year_to=2018):
             pass
         except IndexError:
             pass
+        except Exception as e:
+            print(e)
     return all_votes
 
 
@@ -104,24 +106,68 @@ def workflow():
     LOGGER.info(f"Start downloading votes statistics from url: {EUROVISION_DB_URL}")
 
     countries = get_all_countries()
-    # For each country get all country who votes for her
-    all_points_given_to = []
-    for country in countries:
-        all_points_given_to.append(
-            {
-                'country': countries[country],
-                'get_votes_from': get_all_votes(country)
-            }
-        )
+
     # For each country get all country that she votes for (direction - to: 0, from: 1)
     all_points_given_from = []
     for country in countries:
-        all_points_given_from.append(
-            {
-                'country': countries[country],
-                'voted_to': get_all_votes(country, from_country=True)
+        for year in range(1956, 2019):
+            points_year_from = {
+                'year': year,
+                'country': countries[country].lower(),
+                'voted': get_all_votes_from_specific_year(country, year, from_country=True)
             }
-        )
-    # Store data to mongodb collection
-    insert_to_db(client, all_points_given_from, 'all_points_given_from')
-    insert_to_db(client, all_points_given_to, 'all_points_given_to')
+            all_points_given_from.append(points_year_from)
+            # Store data to mongodb collection
+            insert_to_db(client, points_year_from, 'points_by_year_given_from')
+
+    # For each country get all country who votes for her
+    all_points_given_to = []
+    for country in countries:
+        for year in range(1956, 2019):
+            points_year_to = {
+                    'year': year,
+                    'country': countries[country].lower(),
+                    'voted': get_all_votes_from_specific_year(country, year)
+                }
+            all_points_given_to.append(points_year_to)
+            insert_to_db(client, points_year_to, 'points_by_year_given_to')
+
+
+def calc_best_friends():
+    """
+    Calculate top best friend - top 3 pairs of countries that voted the most to each other over years
+    :return:
+    """
+    total_countries_votes = client.eurovision['all_points_given_from'].find()
+    countries_sorted_value = {}
+    bff = []
+    for country in total_countries_votes:
+        countries_sorted_value[country['country']] = sorted(country['voted_to'], key=lambda k: int(k['points']), reverse=True)[:4]
+    for country in countries_sorted_value:
+        try:
+            country_given_to = countries_sorted_value[country][0]['country']
+            country_given_from = countries_sorted_value[countries_sorted_value[country][0]['country']][0]['country']
+            if country_given_from == country:
+                if (country_given_to, country) not in bff:
+                    bff.append((country, country_given_to))
+        except KeyError:
+            pass
+    if len(bff) > 3:
+        bff_by_score = {}
+        for pair in bff:
+            bff_by_score[int(countries_sorted_value[pair[0]][0]['points']) + int(countries_sorted_value[pair[1]][0]['points'])] = pair
+        bff_by_score = sorted(bff_by_score.items(), key=lambda k: k, reverse=True)[:3]
+        top_bff = [x[1] for x in bff_by_score]
+        top_bff_json = {
+            '1': [top_bff[0][0], top_bff[0][1]],
+            '2': [top_bff[1][0], top_bff[1][1]],
+            '3': [top_bff[2][0], top_bff[2][1]]
+        }
+        insert_to_db(client, top_bff_json, 'bff')
+        print(top_bff)
+    else:
+        print(bff)
+
+
+if __name__ == '__main__':
+    workflow()
