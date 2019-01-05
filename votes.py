@@ -4,11 +4,24 @@ from bs4 import BeautifulSoup
 import logging
 from pymongo import MongoClient
 from EurovisionStat.winning_eurovision_2019.config import db
-from EurovisionStat.winning_eurovision_2019.config.urls import EUROVISION_DB_URL, VOTES_URL
+from EurovisionStat.winning_eurovision_2019.config.urls import EUROVISION_DB_URL, VOTES_URL, VOTES_FROM, VOTES_TO
 
 client = MongoClient(f'mongodb://{db.USERNAME}:{db.PASSWORD}@{db.HOST}:{db.PORT}/{db.NAMESPACE}')
 
 LOGGER = logging.getLogger(__name__)
+
+
+def create_country_flag_collection():
+    # type: ()-> ()
+    """
+    Create document where the country is the key & flag's picture is the value
+    :return: Nothing
+    """
+    countries = get_all_countries()
+    country_flag = {}
+    for country in countries:
+        country_flag[countries[country]] = 'https://eschome.net/flags/' + country + '.png'
+    insert_to_db(client, country_flag, 'country_flag')
 
 
 def get_all_countries():
