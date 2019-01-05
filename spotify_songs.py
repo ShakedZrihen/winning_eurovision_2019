@@ -1,6 +1,9 @@
 import json
 import logging
+
+import requests
 import spotipy
+from bs4 import BeautifulSoup
 from pymongo import MongoClient
 from spotipy.oauth2 import SpotifyClientCredentials
 from EurovisionStat.winning_eurovision_2019.config import spotify as spotify_config, db
@@ -17,15 +20,27 @@ mongo_client = MongoClient(f'mongodb://{db.USERNAME}:{db.PASSWORD}@{db.HOST}:{db
 
 
 def get_genres(artists):
+    # type: (list)->list
+    """
+    Get genres of artist from Spotify API
+    :param artists: A list of artists
+    :return: A list of artists genres
+    """
     genres = []
     for artist in artists:
         artist_data = sp.artist(artist["id"])
-        ganre = artist_data['genres']
-        genres.append(ganre)
+        genre = artist_data['genres']
+        genres.append(genre)
     return genres
 
 
 def parse_songs(all_songs):
+    # type: (list) -> list
+    """
+    Get all eurovision songs from spotify API and takes only wanted parameters
+    :param all_songs: List of songs from spotify API
+    :return: List of parsed songs
+    """
     LOGGER.info(f"Get all songs from playlist")
     song_list = []
     for song in all_songs:
@@ -47,6 +62,11 @@ def print_all_data(data):
 
 
 def get_song_key(song):
+    """
+    Convert song's key represented by number to key name
+    :param song: Song object from Spotify API
+    :return: Song key represented as string
+    """
     LOGGER.info(f"Get song key. song: {song['name']}")
     analysis = sp.audio_analysis(song['id'])
     music_keys = {
@@ -88,6 +108,53 @@ def insert_to_db(client, documents, collection_name):
         raise TypeError
 
 
+def get_song_number_in_final():
+    url = 'https://eschome.net/databaseoutput202.php'
+    headers = {'content-type': 'application/x-www-form-urlencoded'}
+    result = requests.post(url, headers=headers)
+    bs = BeautifulSoup(result.text, 'html.parser')
+    table = bs.find("table", {"id": "tabelle1"})
+    rows = table.find_all('tr')
+    songs_numbers = {}
+    for row in rows[1:]:
+        _song_name = row.find_all('td')[6]
+        song_number = row.find_all('td')[2]
+        songs_numbers[_song_name.text.replace('.', '').replace(',', '')] = song_number.text
+    insert_to_db(mongo_client, songs_numbers, 'winner_songs_perform_number')
+
+
+def merge_collections():
+    eurovision_db = mongo_client.eurovision
+    winner_by_year_collection = eurovision_db['winners_by_year'].find_one()
+    for key in winner_by_year_collection:
+        try:
+            song_name = winner_by_year_collection[key]['song']
+            spotify_songs = eurovision_db['winners_songs_spotify'].find()
+            for doc in spotify_songs:
+                if doc['name'] == song_name:
+                    winner_by_year_collection[key]['song'] = doc
+                    insert_to_db(mongo_client, winner_by_year_collection[key], 'winners_by_year')
+                    break
+        except Exception as e:
+            pass
+
+
+def extract_winner_from_country():
+    eurovision_db = mongo_client.eurovision
+    all_winning_by_location = {}
+    winner_by_year_collection = eurovision_db['winners_by_year'].find()
+    for doc in winner_by_year_collection:
+        location = ''
+        try:
+            location = doc['host_city'].replace(' ', '').lower()
+            doc.pop('_id', None)
+            doc["song"].pop('_id', None)
+            all_winning_by_location[location].append(doc)
+        except KeyError:
+            all_winning_by_location[location] = [doc]
+    insert_to_db(mongo_client, all_winning_by_location, 'all_winners_by_location')
+
+
 def workflow():
     LOGGER.info(f"Start downloading songs from spotify.")
     playlist = sp.user_playlist_tracks(
@@ -97,3 +164,6 @@ def workflow():
     songs = parse_songs(playlist['items'])
     insert_to_db(mongo_client, songs, 'winners_songs_spotify')
 
+
+if __name__ == '__main__':
+    get_song_number_in_final()
