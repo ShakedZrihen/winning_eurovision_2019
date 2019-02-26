@@ -22,6 +22,14 @@ def _setup_logging():
 
 
 def main():
+    """
+    Setup global logger for logging progress
+    Run all workflows:
+    - get all song winners and their counties,
+    - bind song name to song data from spotify and get votes
+    - get votes from/to country from all over the years
+    :return: None
+    """
     _setup_logging()
     song_winners.workflow()
     spotify_songs.workflow()

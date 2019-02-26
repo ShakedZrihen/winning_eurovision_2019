@@ -1,4 +1,5 @@
 import logging
+from bson import ObjectId
 from pymongo import MongoClient
 from urllib.request import urlopen
 from bs4 import BeautifulSoup
@@ -148,7 +149,109 @@ def parse_winner_tables(node):
     return [winner_by_year, winner_by_country, winner_by_lang]
 
 
+def rebind_songs():
+    """
+    Bind songs data from spotify to song name in winner collection
+    Insert binding data to new collection
+    :return: None
+    """
+    client = MongoClient(f'mongodb://{db.USERNAME}:{db.PASSWORD}@{db.HOST}:{db.PORT}/{db.NAMESPACE}')
+    eurovision_db = client.eurovision
+    LOGGER.info(f"Get spotify songs")
+    winners_by_year_new = {}
+    old_winners = db.ALL_WINNERS_BY_YEAR
+    for year in old_winners:
+        old_winner_song = old_winners[year]['song'].lower()
+        spotify_songs = eurovision_db["winners_songs_spotify"].find({})
+        for song in spotify_songs:
+            if song['name'].lower() == old_winner_song:
+                old_winners[year]['song'] = song
+                winners_by_year_new[year] = old_winners[year]
+                break
+    eurovision_db['winner_by_year_new'].insert_one(winners_by_year_new)
+
+
+def get_songs_statistics():
+    """
+    Calculate song statistic from all winners songs over the year
+    :return: dict object with calculated data
+    """
+    client = MongoClient(f'mongodb://{db.USERNAME}:{db.PASSWORD}@{db.HOST}:{db.PORT}/{db.NAMESPACE}')
+    eurovision_db = client.eurovision
+    LOGGER.info(f"Get winners collection")
+    winners_collection = eurovision_db["winner_by_year_new"].find_one({})
+    lang_coll = eurovision_db["wikipedia"].find()[1]
+    lang_coll.pop('_id', None)
+    for lang in lang_coll:
+        try:
+            years = lang_coll[lang]['years']
+            for year in years:
+                for winner_year in winners_collection:
+                    if year == winner_year:
+                        winner = winners_collection[year]
+                        winner['song']['language'] = lang.lower()
+        except:
+            pass
+    print(f"winner: {winners_collection}")
+    eurovision_db["winner_by_year_new"].update_one({}, {"$set": winners_collection})
+    winners_collection = eurovision_db["winner_by_year_new"].find_one({})
+    winners_collection.pop('_id', None)
+    songs_statistics = {
+        'key': {},
+        'lang': {
+            'english': 0,
+            'other': 0
+        },
+        "composition": {
+            'band': 0,
+            'solo': 0
+        },
+        "genre": {
+            'pop': 0,
+            'classic': 0,
+            'rock': 0,
+            'other': 0
+        }
+    }
+    all_songs = 0
+    LOGGER.info(f"Getting tune statistics")
+    for year in winners_collection:
+        winner = winners_collection[year]
+        try:
+            song_key = winner['song']['key']
+            song_lang = winner['song']['language']
+            composition = winner['song']['artist']
+            song_genres = winner['song']['genres'][0]
+            for genre in song_genres:
+                genre_lower = genre.lower()
+                if 'pop' in genre_lower:
+                    songs_statistics['genre']['pop'] += 1
+                elif 'classic' in genre_lower:
+                    songs_statistics['genre']['classic'] += 1
+                elif 'rock' in genre_lower:
+                    songs_statistics['genre']['rock'] += 1
+                else:
+                    songs_statistics['genre']['other'] += 1
+            if song_lang == 'english':
+                songs_statistics['lang'][song_lang] += 1
+            else:
+                songs_statistics['lang']['other'] += 1
+            if len(composition) > 1:
+                songs_statistics['composition']['band'] += 1
+            else:
+                songs_statistics['composition']['solo'] += 1
+
+            try:
+                songs_statistics['key'][song_key] += 1
+            except KeyError:
+                songs_statistics['key'][song_key] = 1
+            finally:
+                all_songs += 1
+        except KeyError:
+            print(f"error: {winner}")
+    eurovision_db['songs_statistic'].insert_one(songs_statistics)
+    return songs_statistics
+
+
 def workflow():
-    html = download_html(LIST_OF_EUROVISION_SONG_WINNERS)
-    winner_tables = parse_winner_tables(html)
-    insert_to_db(winner_tables)
+    get_songs_statistics()

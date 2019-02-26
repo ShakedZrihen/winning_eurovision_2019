@@ -58,6 +58,11 @@ def parse_songs(all_songs):
 
 
 def print_all_data(data):
+    """
+    Get data as dict or list object and print it as indented JSON
+    :param data: Dict or List object
+    :return: None
+    """
     print(json.dumps(data, indent=4, sort_keys=True))
 
 
@@ -109,6 +114,10 @@ def insert_to_db(client, documents, collection_name):
 
 
 def get_song_number_in_final():
+    """
+    Get all winner's song order place number in final
+    :return: dict: key: song name, value: song order place in final
+    """
     url = 'https://eschome.net/databaseoutput202.php'
     headers = {'content-type': 'application/x-www-form-urlencoded'}
     result = requests.post(url, headers=headers)
@@ -121,9 +130,14 @@ def get_song_number_in_final():
         song_number = row.find_all('td')[2]
         songs_numbers[_song_name.text.replace('.', '').replace(',', '')] = song_number.text
     insert_to_db(mongo_client, songs_numbers, 'winner_songs_perform_number')
+    return songs_numbers
 
 
 def merge_collections():
+    """
+    Merge winner by year collection with spotify song data and update it in db
+    :return: None
+    """
     eurovision_db = mongo_client.eurovision
     winner_by_year_collection = eurovision_db['winners_by_year'].find_one()
     for key in winner_by_year_collection:
@@ -131,7 +145,7 @@ def merge_collections():
             song_name = winner_by_year_collection[key]['song']
             spotify_songs = eurovision_db['winners_songs_spotify'].find()
             for doc in spotify_songs:
-                if doc['name'] == song_name:
+                if doc['name'] in song_name:
                     winner_by_year_collection[key]['song'] = doc
                     insert_to_db(mongo_client, winner_by_year_collection[key], 'winners_by_year')
                     break
@@ -140,6 +154,10 @@ def merge_collections():
 
 
 def extract_winner_from_country():
+    """
+    Build winner by location from existing "winners by year" collection
+    :return: dict with all winners by location of the competition
+    """
     eurovision_db = mongo_client.eurovision
     all_winning_by_location = {}
     winner_by_year_collection = eurovision_db['winners_by_year'].find()
@@ -153,6 +171,7 @@ def extract_winner_from_country():
         except KeyError:
             all_winning_by_location[location] = [doc]
     insert_to_db(mongo_client, all_winning_by_location, 'all_winners_by_location')
+    return all_winning_by_location
 
 
 def workflow():
@@ -162,8 +181,5 @@ def workflow():
         playlist_id=spotify_config.EUROVISION_PLAYLIST_ID
     )
     songs = parse_songs(playlist['items'])
-    insert_to_db(mongo_client, songs, 'winners_songs_spotify')
+    return songs
 
-
-if __name__ == '__main__':
-    get_song_number_in_final()

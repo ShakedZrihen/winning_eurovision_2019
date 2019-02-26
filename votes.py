@@ -117,7 +117,6 @@ def insert_to_db(client, documents, collection_name):
 
 def workflow():
     LOGGER.info(f"Start downloading votes statistics from url: {EUROVISION_DB_URL}")
-
     countries = get_all_countries()
 
     # For each country get all country that she votes for (direction - to: 0, from: 1)
@@ -127,7 +126,7 @@ def workflow():
             points_year_from = {
                 'year': year,
                 'country': countries[country].lower(),
-                'voted': get_all_votes_from_specific_year(country, year, from_country=True)
+                'voted': get_all_votes(country, from_country=True, year_from=year, year_to=year)
             }
             all_points_given_from.append(points_year_from)
             # Store data to mongodb collection
@@ -140,7 +139,7 @@ def workflow():
             points_year_to = {
                     'year': year,
                     'country': countries[country].lower(),
-                    'voted': get_all_votes_from_specific_year(country, year)
+                    'voted': get_all_votes(country, from_country=False, year_from=year, year_to=year)
                 }
             all_points_given_to.append(points_year_to)
             insert_to_db(client, points_year_to, 'points_by_year_given_to')
@@ -181,6 +180,3 @@ def calc_best_friends():
     else:
         print(bff)
 
-
-if __name__ == '__main__':
-    workflow()

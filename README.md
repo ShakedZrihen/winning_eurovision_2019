@@ -1,1 +1,2 @@
-winning_eurovision_2019
+Install requirements and run main file
+Change db config for saving data
